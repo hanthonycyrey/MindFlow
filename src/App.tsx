@@ -20,12 +20,36 @@ import {
   X,
   Download,
   Share2,
-  Pencil
+  Pencil,
+  LogOut,
+  LogIn,
+  User as UserIcon
 } from 'lucide-react';
 import { Thought, AnalysisResult, Framework } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { analyzeThoughts } from './services/gemini';
 import { FRAMEWORKS } from './constants';
+import { 
+  auth, 
+  db, 
+  googleProvider, 
+  signInWithPopup, 
+  signOut, 
+  onAuthStateChanged, 
+  collection, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot,
+  handleFirestoreError,
+  OperationType,
+  User
+} from './lib/firebase';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -56,7 +80,17 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 export default function App() {
-  const [thoughts, setThoughts] = useLocalStorage<Thought[]>('mindflow-thoughts', []);
+  return (
+    <ErrorBoundary>
+      <MindFlowApp />
+    </ErrorBoundary>
+  );
+}
+
+function MindFlowApp() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [selectedThoughtId, setSelectedThoughtId] = useLocalStorage<string | null>('mindflow-selected-thought', null);
   const [currentThought, setCurrentThought] = useState('');
   const [currentTitle, setCurrentTitle] = useState('');
@@ -66,6 +100,38 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dump');
   const [isDarkMode, setIsDarkMode] = useLocalStorage('mindflow-darkmode', false);
   const [selectedFramework, setSelectedFramework] = useState<Framework | null>(null);
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore Listener
+  useEffect(() => {
+    if (!user) {
+      setThoughts([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'thoughts'),
+      where('uid', '==', user.uid),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedThoughts = snapshot.docs.map(doc => doc.data() as Thought);
+      setThoughts(fetchedThoughts);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'thoughts');
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const selectedThought = useMemo(() => 
     thoughts.find(t => t.id === selectedThoughtId),
@@ -82,32 +148,55 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  const handleAddThought = () => {
-    if (!currentThought.trim()) return;
-    
-    if (editingThought) {
-      setThoughts(thoughts.map(t => t.id === editingThought.id ? {
-        ...t,
-        title: currentTitle,
-        content: currentThought,
-        timestamp: Date.now() // Update timestamp on edit? Or keep original? Let's update it.
-      } : t));
-      setEditingThought(null);
-    } else {
-      const newThought: Thought = {
-        id: crypto.randomUUID(),
-        title: currentTitle,
-        content: currentThought,
-        timestamp: Date.now(),
-        tags: [],
-        frameworks: [],
-        isArchived: false
-      };
-      setThoughts([newThought, ...thoughts]);
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Login failed", error);
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setSelectedThoughtId(null);
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
+
+  const handleAddThought = async () => {
+    if (!currentThought.trim() || !user) return;
     
-    setCurrentThought('');
-    setCurrentTitle('');
+    try {
+      if (editingThought) {
+        const thoughtRef = doc(db, 'thoughts', editingThought.id);
+        await updateDoc(thoughtRef, {
+          title: currentTitle,
+          content: currentThought,
+          timestamp: Date.now()
+        });
+        setEditingThought(null);
+      } else {
+        const id = crypto.randomUUID();
+        const newThought: Thought & { uid: string } = {
+          id,
+          uid: user.uid,
+          title: currentTitle,
+          content: currentThought,
+          timestamp: Date.now(),
+          tags: [],
+          frameworks: [],
+          isArchived: false
+        };
+        await setDoc(doc(db, 'thoughts', id), newThought);
+      }
+      
+      setCurrentThought('');
+      setCurrentTitle('');
+    } catch (error) {
+      handleFirestoreError(error, editingThought ? OperationType.UPDATE : OperationType.CREATE, 'thoughts');
+    }
   };
 
   const startEditing = (thought: Thought) => {
@@ -125,16 +214,17 @@ export default function App() {
 
   const handleAnalyze = async (id: string) => {
     const thought = thoughts.find(t => t.id === id);
-    if (!thought) return;
+    if (!thought || !user) return;
 
     setAnalyzingId(id);
     try {
       const result = await analyzeThoughts(thought.content);
-      setThoughts(thoughts.map(t => t.id === id ? { ...t, analysis: result } : t));
+      const thoughtRef = doc(db, 'thoughts', id);
+      await updateDoc(thoughtRef, { analysis: result });
       setSelectedThoughtId(id);
       setActiveTab('insights');
     } catch (error) {
-      console.error(error);
+      handleFirestoreError(error, OperationType.UPDATE, 'thoughts');
     } finally {
       setAnalyzingId(null);
     }
@@ -144,12 +234,20 @@ export default function App() {
     t.content.toLowerCase().includes(searchQuery.toLowerCase()) && !t.isArchived
   );
 
-  const deleteThought = (id: string) => {
-    setThoughts(thoughts.filter(t => t.id !== id));
+  const deleteThought = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'thoughts', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'thoughts');
+    }
   };
 
-  const archiveThought = (id: string) => {
-    setThoughts(thoughts.map(t => t.id === id ? { ...t, isArchived: true } : t));
+  const archiveThought = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'thoughts', id), { isArchived: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'thoughts');
+    }
   };
 
   // React Flow Nodes & Edges
@@ -252,6 +350,32 @@ export default function App() {
               >
                 {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </Button>
+              
+              {user ? (
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={handleLogout}
+                      className="rounded-full hover:text-red-500"
+                    >
+                      <LogOut className="w-5 h-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Logout ({user.email})</TooltipContent>
+                </Tooltip>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleLogin}
+                  className="rounded-full gap-2 border-blue-500 text-blue-600 hover:bg-blue-50"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Login
+                </Button>
+              )}
             </div>
           </div>
         </header>
@@ -278,8 +402,44 @@ export default function App() {
             </TabsList>
 
             <AnimatePresence mode="wait">
-              {/* Thought Dump */}
-              <TabsContent value="dump" key="dump">
+              {!isAuthReady ? (
+                <div className="flex items-center justify-center py-20">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                  >
+                    <Sparkles className="w-8 h-8 text-blue-500" />
+                  </motion.div>
+                </div>
+              ) : !user ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="max-w-md mx-auto py-12 text-center space-y-6"
+                >
+                  <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                    <Brain className="w-10 h-10 text-blue-600" />
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tight">Welcome to MindFlow</h2>
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Your secure, AI-powered notebook. Login to sync your thoughts across all your devices and keep your data private.
+                  </p>
+                  <Button 
+                    onClick={handleLogin} 
+                    size="lg" 
+                    className="w-full rounded-full bg-blue-600 hover:bg-blue-700 h-14 text-lg font-bold shadow-xl shadow-blue-500/20 gap-3"
+                  >
+                    <LogIn className="w-6 h-6" />
+                    Continue with Google
+                  </Button>
+                  <p className="text-xs text-slate-500">
+                    By continuing, you agree to our secure data handling principles.
+                  </p>
+                </motion.div>
+              ) : (
+                <>
+                  {/* Thought Dump */}
+                  <TabsContent value="dump" key="dump">
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -667,6 +827,8 @@ export default function App() {
                   )}
                 </motion.div>
               </TabsContent>
+                </>
+              )}
             </AnimatePresence>
           </Tabs>
         </main>

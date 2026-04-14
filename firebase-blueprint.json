@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "Thought": {
+      "title": "Thought",
+      "description": "A single thought entry captured by the user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string", "description": "The user ID of the owner." },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "frameworks": { "type": "array", "items": { "type": "string" } },
+        "isArchived": { "type": "boolean" },
+        "analysis": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "summary": { "type": "string" },
+            "themes": { "type": "array", "items": { "type": "string" } },
+            "patterns": { "type": "array", "items": { "type": "string" } },
+            "suggestedFrameworks": { "type": "array", "items": { "type": "string" } },
+            "actionableInsights": { "type": "array", "items": { "type": "string" } },
+            "connections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": { "type": "string" },
+                  "to": { "type": "string" },
+                  "reason": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": ["id", "uid", "content", "timestamp", "isArchived"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "Private user profile data."
+    },
+    "/thoughts/{thoughtId}": {
+      "schema": "Thought",
+      "description": "User thoughts, secured by UID."
+    }
+  }
+}
