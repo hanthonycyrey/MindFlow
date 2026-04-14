@@ -4,9 +4,13 @@ import { AnalysisResult } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export const analyzeThoughts = async (thought: string): Promise<AnalysisResult> => {
-  const prompt = `Analyze the following thought entry and extract key insights, themes, and patterns. 
-  Suggest relevant mental models or frameworks that could apply to this specific thought.
-  Also, identify potential internal connections or sub-ideas within this thought for a mind map.
+  const prompt = `Analyze the following individual thought entry. 
+  1. Provide a compelling title and concise summary of the core idea.
+  2. Extract the key components or sub-topics (themes) that make up this specific thought.
+  3. Identify recurring patterns or underlying logic within this entry.
+  4. Suggest mental models or frameworks that help explain or expand upon this specific idea.
+  5. Provide actionable insights derived directly from this content.
+  6. Create a detailed "map" of internal connections: how the different sub-topics (themes) within this single entry relate to each other.
   
   Thought Entry:
   ${thought}

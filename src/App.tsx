@@ -162,7 +162,7 @@ export default function App() {
     // Center node
     newNodes.push({
       id: 'center',
-      data: { label: 'My Thoughts' },
+      data: { label: analysis.title || 'Thought Analysis' },
       position: { x: 0, y: 0 },
       style: { 
         background: '#3b82f6', 
@@ -170,8 +170,9 @@ export default function App() {
         borderRadius: '12px', 
         padding: '15px',
         fontWeight: 'bold',
-        width: 150,
-        textAlign: 'center'
+        width: 180,
+        textAlign: 'center',
+        boxShadow: '0 10px 15px -3px rgba(59, 130, 246, 0.5)'
       }
     });
 
