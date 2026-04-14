@@ -19,7 +19,8 @@ import {
   Info,
   X,
   Download,
-  Share2
+  Share2,
+  Pencil
 } from 'lucide-react';
 import { Thought, AnalysisResult, Framework } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -56,13 +57,21 @@ import 'reactflow/dist/style.css';
 
 export default function App() {
   const [thoughts, setThoughts] = useLocalStorage<Thought[]>('mindflow-thoughts', []);
-  const [analysis, setAnalysis] = useLocalStorage<AnalysisResult | null>('mindflow-analysis', null);
+  const [selectedThoughtId, setSelectedThoughtId] = useLocalStorage<string | null>('mindflow-selected-thought', null);
   const [currentThought, setCurrentThought] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [currentTitle, setCurrentTitle] = useState('');
+  const [editingThought, setEditingThought] = useState<Thought | null>(null);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('dump');
   const [isDarkMode, setIsDarkMode] = useLocalStorage('mindflow-darkmode', false);
   const [selectedFramework, setSelectedFramework] = useState<Framework | null>(null);
+
+  const selectedThought = useMemo(() => 
+    thoughts.find(t => t.id === selectedThoughtId),
+  [thoughts, selectedThoughtId]);
+
+  const analysis = selectedThought?.analysis;
 
   // Dark mode effect
   useEffect(() => {
@@ -76,30 +85,58 @@ export default function App() {
   const handleAddThought = () => {
     if (!currentThought.trim()) return;
     
-    const newThought: Thought = {
-      id: crypto.randomUUID(),
-      content: currentThought,
-      timestamp: Date.now(),
-      tags: [],
-      frameworks: [],
-      isArchived: false
-    };
+    if (editingThought) {
+      setThoughts(thoughts.map(t => t.id === editingThought.id ? {
+        ...t,
+        title: currentTitle,
+        content: currentThought,
+        timestamp: Date.now() // Update timestamp on edit? Or keep original? Let's update it.
+      } : t));
+      setEditingThought(null);
+    } else {
+      const newThought: Thought = {
+        id: crypto.randomUUID(),
+        title: currentTitle,
+        content: currentThought,
+        timestamp: Date.now(),
+        tags: [],
+        frameworks: [],
+        isArchived: false
+      };
+      setThoughts([newThought, ...thoughts]);
+    }
     
-    setThoughts([newThought, ...thoughts]);
     setCurrentThought('');
+    setCurrentTitle('');
   };
 
-  const handleAnalyze = async () => {
-    if (thoughts.length === 0) return;
-    setIsAnalyzing(true);
+  const startEditing = (thought: Thought) => {
+    setEditingThought(thought);
+    setCurrentThought(thought.content);
+    setCurrentTitle(thought.title || '');
+    setActiveTab('dump');
+  };
+
+  const cancelEditing = () => {
+    setEditingThought(null);
+    setCurrentThought('');
+    setCurrentTitle('');
+  };
+
+  const handleAnalyze = async (id: string) => {
+    const thought = thoughts.find(t => t.id === id);
+    if (!thought) return;
+
+    setAnalyzingId(id);
     try {
-      const result = await analyzeThoughts(thoughts.map(t => t.content));
-      setAnalysis(result);
+      const result = await analyzeThoughts(thought.content);
+      setThoughts(thoughts.map(t => t.id === id ? { ...t, analysis: result } : t));
+      setSelectedThoughtId(id);
       setActiveTab('insights');
     } catch (error) {
       console.error(error);
     } finally {
-      setIsAnalyzing(false);
+      setAnalyzingId(null);
     }
   };
 
@@ -214,25 +251,6 @@ export default function App() {
               >
                 {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </Button>
-              <Button 
-                variant="default" 
-                size="sm" 
-                onClick={handleAnalyze}
-                disabled={isAnalyzing || thoughts.length === 0}
-                className="gap-2 bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/20"
-              >
-                {isAnalyzing ? (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                  >
-                    <Sparkles className="w-4 h-4" />
-                  </motion.div>
-                ) : (
-                  <Sparkles className="w-4 h-4" />
-                )}
-                Analyze
-              </Button>
             </div>
           </div>
         </header>
@@ -269,10 +287,20 @@ export default function App() {
                 >
                   <Card className="border-none shadow-xl bg-white dark:bg-slate-900 overflow-hidden">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-2xl font-bold">Capture your thoughts</CardTitle>
-                      <CardDescription>Don't filter, just flow. We'll organize it later.</CardDescription>
+                      <CardTitle className="text-2xl font-bold">
+                        {editingThought ? 'Edit your thought' : 'Capture your thoughts'}
+                      </CardTitle>
+                      <CardDescription>
+                        {editingThought ? 'Refine your ideas and save the changes.' : "Don't filter, just flow. We'll organize it later."}
+                      </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                      <Input 
+                        placeholder="Give it a title (optional)..."
+                        className="text-lg font-semibold border-none focus-visible:ring-0 bg-slate-50/50 dark:bg-slate-950/50 px-6 py-4 rounded-xl"
+                        value={currentTitle}
+                        onChange={(e) => setCurrentTitle(e.target.value)}
+                      />
                       <Textarea 
                         placeholder="What's on your mind? Type freely..."
                         className="min-h-[300px] text-lg resize-none border-none focus-visible:ring-0 bg-slate-50/50 dark:bg-slate-950/50 p-6 rounded-xl"
@@ -288,7 +316,14 @@ export default function App() {
                         <p className="text-xs text-slate-500">
                           Tip: Press <kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border">⌘ + Enter</kbd> to save
                         </p>
-                        <Button onClick={handleAddThought} className="px-8 rounded-full">Save Thought</Button>
+                        <div className="flex gap-2">
+                          {editingThought && (
+                            <Button variant="ghost" onClick={cancelEditing} className="rounded-full">Cancel</Button>
+                          )}
+                          <Button onClick={handleAddThought} className="px-8 rounded-full">
+                            {editingThought ? 'Update Thought' : 'Save Thought'}
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -302,13 +337,28 @@ export default function App() {
 
                   <div className="grid gap-4">
                     {thoughts.slice(0, 3).map((thought) => (
-                      <Card key={thought.id} className="group hover:shadow-md transition-all border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                      <Card 
+                        key={thought.id} 
+                        className={`group hover:shadow-md transition-all border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 cursor-pointer ${selectedThoughtId === thought.id ? 'ring-2 ring-blue-500' : ''}`}
+                        onClick={() => {
+                          setSelectedThoughtId(thought.id);
+                          if (thought.analysis) setActiveTab('insights');
+                        }}
+                      >
                         <CardContent className="p-4">
                           <div className="flex justify-between items-start mb-2">
                             <span className="text-xs font-medium text-slate-400">
                               {format(thought.timestamp, 'MMM d, h:mm a')}
                             </span>
+                            {thought.analysis && (
+                              <Badge variant="secondary" className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-none text-[10px]">
+                                Analyzed
+                              </Badge>
+                            )}
                           </div>
+                          {thought.title && (
+                            <h4 className="font-bold text-sm mb-1 text-blue-600 dark:text-blue-400">{thought.title}</h4>
+                          )}
                           <p className="text-slate-700 dark:text-slate-300 line-clamp-2">{thought.content}</p>
                         </CardContent>
                       </Card>
@@ -354,30 +404,83 @@ export default function App() {
                         </div>
                       ) : (
                         filteredThoughts.map((thought) => (
-                          <Card key={thought.id} className="group relative border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                          <Card 
+                            key={thought.id} 
+                            className={`group relative border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 transition-all cursor-pointer ${selectedThoughtId === thought.id ? 'ring-2 ring-blue-500' : ''}`}
+                            onClick={() => setSelectedThoughtId(thought.id)}
+                          >
                             <CardContent className="p-6">
                               <div className="flex justify-between items-start mb-4">
                                 <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">
                                   {format(thought.timestamp, 'EEEE, MMMM do')}
                                 </span>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600" onClick={() => archiveThought(thought.id)}>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8 text-blue-500 hover:text-blue-600" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAnalyze(thought.id);
+                                    }}
+                                    disabled={analyzingId === thought.id}
+                                  >
+                                    {analyzingId === thought.id ? (
+                                      <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
+                                        <Sparkles className="w-4 h-4" />
+                                      </motion.div>
+                                    ) : (
+                                      <Sparkles className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600" onClick={(e) => {
+                                    e.stopPropagation();
+                                    startEditing(thought);
+                                  }}>
+                                    <Pencil className="w-4 h-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600" onClick={(e) => {
+                                    e.stopPropagation();
+                                    archiveThought(thought.id);
+                                  }}>
                                     <Archive className="w-4 h-4" />
                                   </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={() => deleteThought(thought.id)}>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteThought(thought.id);
+                                  }}>
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
                                 </div>
                               </div>
+                              {thought.title && (
+                                <h3 className="text-xl font-bold mb-2 text-slate-900 dark:text-slate-100">{thought.title}</h3>
+                              )}
                               <div className="prose prose-slate dark:prose-invert max-w-none">
                                 <ReactMarkdown>{thought.content}</ReactMarkdown>
                               </div>
-                              <div className="mt-4 flex flex-wrap gap-2">
-                                {thought.frameworks.map(f => (
-                                  <Badge key={f} variant="secondary" className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-none">
-                                    {f}
-                                  </Badge>
-                                ))}
+                              <div className="mt-4 flex flex-wrap gap-2 items-center justify-between">
+                                <div className="flex flex-wrap gap-2">
+                                  {thought.frameworks.map(f => (
+                                    <Badge key={f} variant="secondary" className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-none">
+                                      {f}
+                                    </Badge>
+                                  ))}
+                                </div>
+                                {thought.analysis && (
+                                  <Button 
+                                    variant="link" 
+                                    size="sm" 
+                                    className="text-blue-600 p-0 h-auto"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedThoughtId(thought.id);
+                                      setActiveTab('insights');
+                                    }}
+                                  >
+                                    View Insights →
+                                  </Button>
+                                )}
                               </div>
                             </CardContent>
                           </Card>
@@ -400,10 +503,14 @@ export default function App() {
                     <Card className="border-dashed border-2 py-20 text-center bg-transparent">
                       <CardContent>
                         <Sparkles className="w-12 h-12 mx-auto mb-4 text-blue-500 opacity-50" />
-                        <h3 className="text-xl font-semibold mb-2">No Analysis Yet</h3>
-                        <p className="text-slate-500 mb-6 max-w-xs mx-auto">Click the Analyze button to let Gemini process your thoughts and find patterns.</p>
-                        <Button onClick={handleAnalyze} disabled={isAnalyzing || thoughts.length === 0} className="rounded-full">
-                          {isAnalyzing ? "Analyzing..." : "Analyze Now"}
+                        <h3 className="text-xl font-semibold mb-2">Select a Thought to Analyze</h3>
+                        <p className="text-slate-500 mb-6 max-w-xs mx-auto">
+                          {selectedThoughtId 
+                            ? "This thought hasn't been analyzed yet. Click the Sparkles icon in the Timeline to analyze it."
+                            : "Go to the Timeline and select a thought to view its specific insights."}
+                        </p>
+                        <Button onClick={() => setActiveTab('timeline')} className="rounded-full">
+                          Go to Timeline
                         </Button>
                       </CardContent>
                     </Card>
@@ -412,10 +519,19 @@ export default function App() {
                       {/* Summary */}
                       <Card className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white border-none shadow-xl rounded-2xl overflow-hidden">
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Sparkles className="w-5 h-5" />
-                            Executive Summary
+                          <div className="flex justify-between items-start mb-2">
+                            <Badge variant="secondary" className="bg-white/20 text-white border-none backdrop-blur-sm">
+                              AI Analysis
+                            </Badge>
+                          </div>
+                          <CardTitle className="text-3xl font-black tracking-tight mb-2">
+                            {analysis.title}
                           </CardTitle>
+                          <Separator className="bg-white/20 mb-4" />
+                          <div className="flex items-center gap-2 text-sm font-medium opacity-80">
+                            <Sparkles className="w-4 h-4" />
+                            Executive Summary
+                          </div>
                         </CardHeader>
                         <CardContent>
                           <p className="text-lg leading-relaxed opacity-90">{analysis.summary}</p>
@@ -520,8 +636,12 @@ export default function App() {
                     <div className="h-full flex flex-col items-center justify-center text-slate-500 p-8 text-center">
                       <Network className="w-16 h-16 mb-4 opacity-20" />
                       <h3 className="text-xl font-semibold mb-2">Mind Map Unavailable</h3>
-                      <p className="max-w-xs">Analyze your thoughts first to generate a visual map of your ideas and their connections.</p>
-                      <Button variant="outline" className="mt-6 rounded-full" onClick={() => setActiveTab('insights')}>Go to Insights</Button>
+                      <p className="max-w-xs">
+                        {selectedThoughtId 
+                          ? "Analyze this specific thought first to generate its visual map."
+                          : "Select a thought from the Timeline to see its internal connections."}
+                      </p>
+                      <Button variant="outline" className="mt-6 rounded-full" onClick={() => setActiveTab('timeline')}>Go to Timeline</Button>
                     </div>
                   ) : (
                     <>

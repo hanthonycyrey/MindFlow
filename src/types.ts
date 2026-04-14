@@ -1,13 +1,16 @@
 export interface Thought {
   id: string;
+  title?: string;
   content: string;
   timestamp: number;
   tags: string[];
   frameworks: string[];
   isArchived: boolean;
+  analysis?: AnalysisResult;
 }
 
 export interface AnalysisResult {
+  title: string;
   summary: string;
   themes: string[];
   patterns: string[];

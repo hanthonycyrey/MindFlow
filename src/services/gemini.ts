@@ -3,13 +3,13 @@ import { AnalysisResult } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
-export const analyzeThoughts = async (thoughts: string[]): Promise<AnalysisResult> => {
-  const prompt = `Analyze the following collection of thoughts and extract key insights, themes, and patterns. 
-  Suggest relevant mental models or frameworks that could apply to these thoughts.
-  Also, identify potential connections between ideas for a mind map.
+export const analyzeThoughts = async (thought: string): Promise<AnalysisResult> => {
+  const prompt = `Analyze the following thought entry and extract key insights, themes, and patterns. 
+  Suggest relevant mental models or frameworks that could apply to this specific thought.
+  Also, identify potential internal connections or sub-ideas within this thought for a mind map.
   
-  Thoughts:
-  ${thoughts.join('\n---\n')}
+  Thought Entry:
+  ${thought}
   `;
 
   const response = await ai.models.generateContent({
@@ -20,6 +20,7 @@ export const analyzeThoughts = async (thoughts: string[]): Promise<AnalysisResul
       responseSchema: {
         type: Type.OBJECT,
         properties: {
+          title: { type: Type.STRING, description: "A compelling title for this thought cluster." },
           summary: { type: Type.STRING, description: "A concise summary of the thought cluster." },
           themes: { 
             type: Type.ARRAY, 
@@ -54,7 +55,7 @@ export const analyzeThoughts = async (thoughts: string[]): Promise<AnalysisResul
             }
           }
         },
-        required: ["summary", "themes", "patterns", "suggestedFrameworks", "actionableInsights", "connections"]
+        required: ["title", "summary", "themes", "patterns", "suggestedFrameworks", "actionableInsights", "connections"]
       }
     }
   });
