@@ -50,7 +50,8 @@ import {
   User
 } from './lib/firebase';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -353,15 +354,11 @@ function MindFlowApp() {
               
               {user ? (
                 <Tooltip>
-                  <TooltipTrigger>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={handleLogout}
-                      className="rounded-full hover:text-red-500"
-                    >
-                      <LogOut className="w-5 h-5" />
-                    </Button>
+                  <TooltipTrigger 
+                    onClick={handleLogout}
+                    className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), "rounded-full hover:text-red-500")}
+                  >
+                    <LogOut className="w-5 h-5" />
                   </TooltipTrigger>
                   <TooltipContent>Logout ({user.email})</TooltipContent>
                 </Tooltip>
